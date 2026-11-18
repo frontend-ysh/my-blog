@@ -7,16 +7,29 @@
 #   로그: docker compose -f docker-compose.prod.yml logs -f
 #   종료: docker compose -f docker-compose.prod.yml down      (데이터는 볼륨에 남는다)
 #
-# 세 서비스는 compose가 만든 내부 네트워크에서 서비스 이름(db, backend)으로 서로를 찾는다.
-# 밖으로 여는 포트는 프런트엔드 하나뿐이다. DB와 백엔드는 밖에서 접속할 수 없다.
+# 서비스들은 compose가 만든 내부 네트워크에서 서비스 이름(db, backend, frontend)으로 서로를 찾는다.
+#
+# 내 컴퓨터에서 띄우면 http://localhost:3000 으로 접속한다.
+# 실제 서버에서는 .env에 COMPOSE_PROFILES=https 를 적어 caddy까지 띄운다. 그러면 밖에서는
+# caddy(80, 443)로만 들어올 수 있다. 서버에 올리는 순서는 docs/deploy-aws.md에 있다.
 
 # 개발용 구성과 컨테이너·볼륨 이름이 겹치지 않도록 프로젝트 이름을 따로 준다.
 name: blog-prod
+
+# 컨테이너가 출력한 로그는 Docker가 파일로 쌓아 둔다. 기본 설정은 크기 제한이 없어서
+# 오래 켜 두면 디스크가 가득 찬다. 서비스마다 10MB짜리 파일 3개까지만 남기고 오래된 것은 버린다.
+# (&logging으로 이름을 붙여 두고, 아래에서 *logging으로 같은 내용을 가져다 쓴다.)
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: blog
       POSTGRES_USER: blog
@@ -34,6 +47,11 @@ services:
     build: ./backend
     image: blog-backend
     restart: unless-stopped
+    logging: *logging
+    # 이 컨테이너가 쓸 수 있는 메모리의 상한. 자바는 "쓸 수 있는 메모리의 75%"까지 힙으로 쓰도록
+    # 설정되어 있다(backend/Dockerfile의 MaxRAMPercentage). 상한이 없으면 서버 전체 메모리의 75%를
+    # 기준으로 삼아서, 메모리가 작은 서버에서는 DB와 프런트엔드가 쓸 몫까지 차지할 수 있다.
+    mem_limit: 1g
     depends_on:
       db:
         # DB가 접속을 받을 준비가 된 뒤에 시작한다.
@@ -60,13 +78,16 @@ services:
     build: ./frontend
     image: blog-frontend
     restart: unless-stopped
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
     environment:
       API_BASE_URL: http://backend:8080
     ports:
-      - "${PORT:-3000}:3000"
+      # 앞의 127.0.0.1: 이 컴퓨터 안에서만 접속할 수 있고, 다른 컴퓨터에서는 3000번으로 들어올 수 없다.
+      # 서버에서는 밖에서 오는 요청이 반드시 caddy(HTTPS)를 거치게 된다.
+      - "127.0.0.1:${PORT:-3000}:3000"
     healthcheck:
       # localhost가 아니라 127.0.0.1로 적는다. 서버는 IPv4 주소(0.0.0.0)에서만 듣는데,
       # 환경에 따라 컨테이너 안의 localhost가 IPv6 주소(::1)로 풀려서 서버에 닿지 못한다.
@@ -76,6 +97,31 @@ services:
       retries: 6
       start_period: 10s
 
+  # HTTPS를 맡는 앞단 프록시. 설정은 Caddyfile에 있다.
+  caddy:
+    image: caddy:2-alpine
+    # profiles가 붙은 서비스는 그 이름을 켰을 때만 뜬다.
+    # 켜는 법: .env에 COMPOSE_PROFILES=https 를 적는다 (또는 명령에 --profile https 를 붙인다).
+    profiles: ["https"]
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 받아 온 인증서를 보관한다. 이 볼륨이 없으면 컨테이너를 새로 만들 때마다 인증서를 다시 받게 되고,
+      # 발급 기관(Let's Encrypt)의 발급 횟수 제한에 걸릴 수 있다.
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   db-data:
   uploads:
+  caddy-data:
+  caddy-config:

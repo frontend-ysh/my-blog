@@ -13,7 +13,7 @@ Spring Boot(API 서버)와 Next.js(화면)를 분리해서 만드는 블로그.
 | 프런트엔드 | Next.js 16 (App Router), TypeScript, Tailwind CSS, react-markdown |
 | DB | PostgreSQL 17 |
 | 테스트 | JUnit 5, Testcontainers |
-| 배포 | Docker, Docker Compose, GitHub Actions |
+| 배포 | Docker, Docker Compose, GitHub Actions, Caddy(HTTPS), AWS EC2 |
 
 ## 실행 방법
 
@@ -63,16 +63,40 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 http://localhost:3000 으로 접속한다.
 
-| 서비스 | 이미지 | 밖으로 여는 포트 | 데이터 |
+| 서비스 | 이미지 | 여는 포트 | 데이터 |
 |---|---|---|---|
-| `frontend` | `frontend/Dockerfile` | 3000 | |
+| `frontend` | `frontend/Dockerfile` | 3000 (이 컴퓨터 안에서만 접속된다) | |
 | `backend` | `backend/Dockerfile` | 없음 | 볼륨 `uploads` (올린 이미지) |
 | `db` | `postgres:17-alpine` | 없음 | 볼륨 `db-data` |
+| `caddy` | `caddy:2-alpine` | 80, 443 | 볼륨 `caddy-data` (인증서) |
 
-- 백엔드와 DB는 내부 네트워크에서만 접속된다. 밖에서는 프런트엔드만 보인다.
+- `caddy`는 `.env`에 `COMPOSE_PROFILES=https`를 적었을 때만 뜬다(아래 "서버에 배포하기").
+- 백엔드와 DB는 내부 네트워크에서만 접속된다.
 - 컨테이너를 지우고 다시 만들어도 글, 댓글, 올린 이미지는 볼륨에 남는다. `down`에 `--volumes`를 붙이면 데이터까지 지워진다.
 - 코드를 고친 뒤에는 같은 `up -d --build` 명령을 다시 실행하면 바뀐 이미지로 교체된다.
-- **실제 서버에서는 HTTPS가 필요하다.** 로그인 쿠키는 HTTPS(또는 localhost)에서만 전송되도록 되어 있어서, `http://서버주소:3000`으로는 로그인이 되지 않는다. 앞단에 HTTPS를 처리하는 프록시(Caddy, Nginx, 클라우드의 로드 밸런서 등)를 두고 3000번 포트로 넘겨야 한다.
+
+## 서버에 배포하기
+
+```
+브라우저 ──(HTTPS)──▶ Caddy (80, 443) ──▶ Next.js ──▶ Spring Boot ──▶ PostgreSQL
+```
+
+실제 서버에서는 HTTPS가 필요하다. 로그인 쿠키가 HTTPS(또는 localhost)에서만 전달되도록 되어 있어서, `http://서버주소`로는 로그인이 되지 않는다. 그래서 맨 앞에 HTTPS를 맡는 프록시(Caddy)를 둔다. Caddy는 도메인의 인증서를 Let's Encrypt에서 자동으로 받아 오고 갱신한다.
+
+`.env`에 두 줄을 더 적으면 같은 명령으로 Caddy까지 뜬다.
+
+```
+DOMAIN=blog.example.com
+COMPOSE_PROFILES=https
+```
+
+| 파일 | 내용 |
+|---|---|
+| [`docs/deploy-aws.md`](docs/deploy-aws.md) | AWS EC2에 올리는 순서: 서버 만들기, 도메인 연결, 띄우기, 새 버전 올리기, 백업과 복구, 비용과 정리 |
+| `Caddyfile` | Caddy 설정 |
+| `scripts/backup.sh` | DB와 올린 이미지를 `backups/` 폴더에 파일로 떠 둔다 |
+
+도메인 없이 내 컴퓨터에서 HTTPS 구성을 시험해 볼 수도 있다. `.env`에 `COMPOSE_PROFILES=https`만 적고 띄우면 https://localhost 로 열린다(Caddy가 직접 만든 인증서라 브라우저에 경고가 뜬다).
 
 ## CI
 
@@ -82,7 +106,7 @@ http://localhost:3000 으로 접속한다.
 |---|---|
 | 백엔드 테스트 | `./gradlew test` |
 | 프런트엔드 린트·빌드 | `npm ci`, `npm run lint`, `npm run build` |
-| Docker로 전체 띄워 보기 | 위 둘이 통과하면, 두 이미지를 빌드해 `docker-compose.prod.yml`로 띄우고 첫 화면이 DB까지 연결되어 나오는지 확인 |
+| Docker로 전체 띄워 보기 | 위 둘이 통과하면, 두 이미지를 빌드해 `docker-compose.prod.yml`로 HTTPS 프록시까지 띄우고, 첫 화면이 DB까지 연결되어 나오는지와 https로 열리는지 확인 |
 
 ## 운영 환경 설정
 
@@ -96,6 +120,8 @@ http://localhost:3000 으로 접속한다.
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | 백엔드 | PostgreSQL 접속 정보 |
 | `UPLOAD_DIR` | 백엔드 | 올린 이미지를 저장할 폴더. 기본 `uploads` (서버를 실행한 위치 기준) |
 | `API_BASE_URL` | 프런트엔드 | 백엔드 주소. 기본 `http://localhost:8080` |
+| `DOMAIN` | Caddy | 블로그의 도메인. 이 도메인으로 인증서를 받는다. 기본 `localhost` |
+| `COMPOSE_PROFILES` | Docker Compose | `https`로 두면 Caddy까지 띄운다 |
 
 ## 테스트
 
@@ -229,4 +255,5 @@ curl -X POST http://localhost:8080/api/images \
 - [x] 4단계: 태그, 페이지네이션, 마크다운
 - [x] 5단계: 댓글, 이미지 업로드, 검색
 - [x] 6단계-1: Docker 이미지, 전체 구성(docker-compose.prod.yml), CI 설정
-- [ ] 6단계-2: 실제 서버에 배포 (배포할 곳을 정한 뒤)
+- [x] 6단계-2: 서버 배포 준비 (HTTPS 프록시, 백업 스크립트, AWS 배포 안내서)
+- [ ] 6단계-3: AWS에 실제로 올리기 ([`docs/deploy-aws.md`](docs/deploy-aws.md)를 따라 진행)

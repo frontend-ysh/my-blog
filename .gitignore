@@ -10,3 +10,6 @@ Thumbs.db
 # 로컬 환경변수 (비밀값이 들어가므로 커밋하지 않는다)
 .env
 .env.local
+
+# 백업 파일 (scripts/backup.sh가 만든다)
+backups/

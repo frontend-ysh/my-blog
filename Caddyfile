@@ -1,0 +1,22 @@
+# Caddy 설정. Caddy는 맨 앞에서 브라우저의 요청을 받아 프런트엔드로 넘겨주는 프록시다.
+#
+#   브라우저 ──(HTTPS)──▶ Caddy (80, 443) ──(HTTP)──▶ frontend:3000
+#
+# 하는 일은 두 가지다.
+#   1. HTTPS: 아래에 적힌 도메인의 인증서를 Let's Encrypt에서 자동으로 받아 오고, 만료 전에 알아서 갱신한다.
+#   2. http://로 들어온 요청을 https://로 돌려보낸다.
+# 둘 다 Caddy의 기본 동작이라 따로 적은 설정이 없다.
+
+{
+	servers {
+		# HTTP/3는 TCP가 아니라 UDP 443번을 쓴다. 방화벽에서 TCP 80, 443만 열어도 되도록 꺼 둔다.
+		protocols h1 h2
+	}
+}
+
+# {$DOMAIN:localhost}: 환경변수 DOMAIN의 값이 이 자리에 들어간다. 값이 없으면 localhost가 된다.
+# localhost일 때는 Let's Encrypt를 쓰지 않고 Caddy가 직접 만든 인증서를 쓴다
+# (브라우저에 경고가 뜬다. 내 컴퓨터에서 시험해 볼 때만 쓴다).
+{$DOMAIN:localhost} {
+	reverse_proxy frontend:3000
+}

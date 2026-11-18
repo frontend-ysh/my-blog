@@ -77,9 +77,11 @@ jobs:
       JWT_SECRET: ci-only-secret-key-0123456789-abcdefghijklmnop
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ci-only-admin-password
+      # 서버에 올릴 때와 같게 HTTPS 프록시(caddy)까지 띄운다. DOMAIN을 주지 않았으므로 localhost로 뜬다.
+      COMPOSE_PROFILES: https
     steps:
       - uses: actions/checkout@v7
-      # 두 이미지를 빌드하고 DB·백엔드·프런트엔드를 띄운 뒤, 셋 다 "정상" 상태가 될 때까지 기다린다.
+      # 두 이미지를 빌드하고 DB·백엔드·프런트엔드·프록시를 띄운 뒤, 모두 "정상" 상태가 될 때까지 기다린다.
       - name: 이미지 빌드 후 시작
         run: docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 300
       # 첫 화면의 "아직 글이 없습니다"는 프런트엔드가 백엔드에 묻고, 백엔드가 DB에 물어서 나온 결과다.
@@ -89,6 +91,17 @@ jobs:
           curl --fail --silent --show-error --output home.html http://localhost:3000/
           grep --quiet "아직 글이 없습니다" home.html
           curl --fail --silent --show-error --output /dev/null http://localhost:3000/login
+      - name: HTTPS 프록시를 거쳐도 화면이 나오는지 확인
+        run: |
+          # --insecure: localhost용 인증서는 Caddy가 직접 만든 것이라 curl이 믿지 않는다.
+          # --retry: Caddy가 뜬 직후에는 인증서를 만드는 중일 수 있어서 몇 번 다시 시도한다.
+          curl --fail --silent --show-error --insecure --retry 5 --retry-delay 2 --retry-all-errors \
+            --output proxied.html https://localhost/
+          grep --quiet "아직 글이 없습니다" proxied.html
+          # http://로 오면 https://로 돌려보내야 한다(308).
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost/)
+          echo "http://localhost/ → $status"
+          test "$status" = "308"
       - name: 실패하면 컨테이너 로그 출력
         if: failure()
         run: docker compose -f docker-compose.prod.yml logs
