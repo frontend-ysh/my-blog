@@ -1,0 +1,9 @@
+# 이미지 빌드에 보내지 않을 것들.
+node_modules/
+.next/
+# 내 컴퓨터의 환경변수 파일이 이미지에 들어가면 안 된다.
+.env*
+.git/
+Dockerfile
+.dockerignore
+*.tsbuildinfo

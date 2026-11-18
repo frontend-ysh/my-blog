@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: blog
+  datasource:
+    # ${환경변수:기본값} 형식. 로컬에서는 기본값(docker-compose.yml의 DB)을 쓰고,
+    # 배포 환경에서는 환경변수로 실제 DB 정보를 주입한다.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/blog}
+    username: ${DB_USERNAME:blog}
+    password: ${DB_PASSWORD:blog}
+    hikari:
+      # DB 커넥션을 얻지 못할 때 기다리는 최대 시간(ms). 기본값은 30초라서
+      # DB가 죽으면 모든 요청이 30초씩 멈춘다. 빨리 실패하도록 3초로 줄인다.
+      connection-timeout: 3000
+  servlet:
+    multipart:
+      # 업로드 요청의 크기 한도. 이보다 큰 요청은 컨트롤러에 닿기 전에 거절되어, 서버의 메모리와
+      # 디스크를 지킨다. "이미지는 5MB까지"라는 서비스 규칙은 ImageService가 따로 검사한다.
+      max-file-size: 10MB
+      max-request-size: 10MB
+  jpa:
+    hibernate:
+      # 테이블은 Flyway(db/migration의 SQL)가 만든다. Hibernate는 엔티티와
+      # 실제 테이블이 맞는지 검사만 하고, 다르면 서버가 뜨지 않게 한다.
+      ddl-auto: validate
+    # 기본값(true)은 응답을 다 보낼 때까지 DB 커넥션을 붙잡고 있는다.
+    # 끄면 트랜잭션이 끝나는 즉시(서비스 메서드 종료 시) 커넥션을 반납한다.
+    open-in-view: false
+    properties:
+      hibernate:
+        # 지연 로딩되는 연관 데이터(예: 글의 태그)를 하나씩 조회하지 않고, 최대 100개까지
+        # 묶어서 한 번에 조회한다. 목록에서 글마다 쿼리가 나가는 N+1 문제를 막는다.
+        default_batch_fetch_size: 100
+
+blog:
+  jwt:
+    # 토큰 서명에 쓰는 비밀 키. 쓸 수 있는 기본값을 일부러 두지 않았다. 환경변수가 없으면
+    # 빈 값이 되어 검증(JwtProperties)에 걸리고 서버가 뜨지 않는다. 실수로 알려진 키를
+    # 쓴 채 운영하는 일을 막기 위해서다.
+    secret: ${JWT_SECRET:}
+    # 토큰 유효 기간. 만료 전에는 서버에서 토큰을 무효로 만들 수 없으므로 너무 길게 잡지 않는다.
+    expiration: ${JWT_EXPIRATION:12h}
+  upload:
+    # 올린 이미지를 저장할 폴더. 기본값은 서버를 실행한 위치의 uploads 폴더.
+    dir: ${UPLOAD_DIR:uploads}
+  admin:
+    # 서버가 뜰 때 이 계정이 없으면 만든다. 비워 두면 만들지 않는다.
+    username: ${ADMIN_USERNAME:}
+    password: ${ADMIN_PASSWORD:}
+
+server:
+  port: 8080

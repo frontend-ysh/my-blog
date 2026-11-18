@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.2'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // 웹 API (Spring MVC + 내장 Tomcat + JSON 변환)
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    // DB 접근 (JPA/Hibernate + 커넥션 풀)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    // 요청 값 검증 (@NotBlank, @Size 등)
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    // DB 스키마 버전 관리: SQL 파일을 순서대로 실행해 테이블을 만든다
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+    // 인증·인가(Spring Security) + JWT 발급·검증. 'OAuth2 리소스 서버'라는 이름이지만,
+    // Bearer 토큰(JWT)을 검증하는 필터를 스프링이 제공하는 모듈이다.
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    // 운영용 엔드포인트 (/actuator/health 등)
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // PostgreSQL JDBC 드라이버: 컴파일할 때는 필요 없고 실행할 때만 필요
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    // 테스트할 때 진짜 PostgreSQL을 일회용 Docker 컨테이너로 띄운다
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('jar') {
+    // 기본 설정은 jar를 두 개 만든다: 바로 실행할 수 있는 것(bootJar)과 클래스만 든 것(-plain).
+    // 실행용 하나만 만들어서, 배포할 파일이 헷갈리지 않게 한다.
+    enabled = false
+}
+
+tasks.named('bootRun') {
+    // `./gradlew bootRun`은 개발할 때 쓰는 실행 방법이므로 local 프로필(application-local.yml)을
+    // 기본으로 켠다. 다른 프로필로 띄우려면 SPRING_PROFILES_ACTIVE 환경변수를 지정한다.
+    systemProperty 'spring.profiles.active', System.getenv('SPRING_PROFILES_ACTIVE') ?: 'local'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

@@ -1,0 +1,9 @@
+# 로컬 개발 전용 값. `./gradlew bootRun`으로 실행할 때만 적용된다 (build.gradle 참고).
+# 누구나 볼 수 있는 값이므로 운영에서는 절대 이 프로필을 켜지 않는다.
+# 운영에서는 JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD 환경변수로 실제 값을 넣는다.
+blog:
+  jwt:
+    secret: local-development-only-secret-key-0123456789
+  admin:
+    username: admin
+    password: admin1234

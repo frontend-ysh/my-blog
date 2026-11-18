@@ -1,0 +1,12 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.idea/
+.vscode/
+*.swp
+
+# 로컬 환경변수 (비밀값이 들어가므로 커밋하지 않는다)
+.env
+.env.local

@@ -1,0 +1,97 @@
+# CI(지속적 통합): main 브랜치에 코드를 올리거나 풀 리퀘스트를 열 때마다 GitHub가 아래 작업을 자동으로 돌린다.
+# 결과는 저장소의 Actions 탭과 커밋 옆의 초록 체크/빨간 X로 보인다.
+#
+#   backend  ─┐
+#             ├─▶ stack (앞의 둘이 통과해야 실행)
+#   frontend ─┘
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 같은 브랜치에 새 커밋이 올라오면 그 전 커밋의 실행은 취소한다(결과가 쓸모없어지므로).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 이 작업들은 저장소를 읽기만 하면 된다. 필요한 만큼만 권한을 준다.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 백엔드 테스트
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      # Gradle을 준비하고, 내려받은 라이브러리를 다음 실행 때 다시 쓰도록 저장해 둔다.
+      - uses: gradle/actions/setup-gradle@v6
+      # 테스트는 진짜 PostgreSQL을 Docker로 띄워서 돈다(Testcontainers). GitHub의 실행 환경에는 Docker가 있다.
+      - name: 테스트
+        run: ./gradlew test
+      - name: 실패하면 테스트 보고서 보관
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-test-report
+          path: backend/build/reports/tests/test
+          retention-days: 7
+
+  frontend:
+    name: 프런트엔드 린트·빌드
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 의존성 설치
+        run: npm ci
+      - name: 린트
+        run: npm run lint
+      # 타입 오류도 여기서 잡힌다(빌드 과정에 타입 검사가 들어 있다).
+      - name: 빌드
+        run: npm run build
+
+  stack:
+    name: Docker로 전체 띄워 보기
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    # 이 작업 안에서만 쓰고 버리는 값이다. 실제 운영 값은 저장소에 적지 않는다.
+    env:
+      DB_PASSWORD: ci-only-db-password
+      JWT_SECRET: ci-only-secret-key-0123456789-abcdefghijklmnop
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ci-only-admin-password
+    steps:
+      - uses: actions/checkout@v7
+      # 두 이미지를 빌드하고 DB·백엔드·프런트엔드를 띄운 뒤, 셋 다 "정상" 상태가 될 때까지 기다린다.
+      - name: 이미지 빌드 후 시작
+        run: docker compose -f docker-compose.prod.yml up -d --build --wait --wait-timeout 300
+      # 첫 화면의 "아직 글이 없습니다"는 프런트엔드가 백엔드에 묻고, 백엔드가 DB에 물어서 나온 결과다.
+      # 이 문구가 보이면 세 컨테이너가 서로 연결되어 있다는 뜻이다.
+      - name: 화면이 뜨고 DB까지 연결되는지 확인
+        run: |
+          curl --fail --silent --show-error --output home.html http://localhost:3000/
+          grep --quiet "아직 글이 없습니다" home.html
+          curl --fail --silent --show-error --output /dev/null http://localhost:3000/login
+      - name: 실패하면 컨테이너 로그 출력
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs
+      - name: 정리
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down --volumes

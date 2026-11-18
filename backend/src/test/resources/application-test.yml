@@ -1,0 +1,23 @@
+# 테스트 전용 값. @IntegrationTest가 test 프로필을 켠다.
+spring:
+  jpa:
+    properties:
+      hibernate:
+        # 실행된 쿼리 수를 셀 수 있게 한다. N+1 문제가 없는지 테스트에서 확인할 때 쓴다.
+        generate_statistics: true
+
+logging:
+  level:
+    # 통계를 켜면 요청마다 긴 요약 로그가 찍힌다. 테스트 로그가 묻히지 않게 끈다.
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: warn
+
+blog:
+  upload:
+    # 테스트가 올린 파일은 빌드 폴더에 둔다. ./gradlew clean 으로 함께 지워진다.
+    dir: build/test-uploads
+  jwt:
+    secret: test-only-secret-key-0123456789-abcdefghij
+    expiration: 1h
+  admin:
+    username: test-admin
+    password: test-password-1234

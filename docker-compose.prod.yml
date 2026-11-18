@@ -1,0 +1,79 @@
+# 운영용 구성: DB, 백엔드, 프런트엔드를 한 번에 띄운다.
+# (docker-compose.yml은 개발용이다. 개발할 때는 DB만 Docker로 띄우고 나머지는 직접 실행한다.)
+#
+#   준비: cp .env.example .env  →  .env의 값을 채운다
+#   시작: docker compose -f docker-compose.prod.yml up -d --build
+#   상태: docker compose -f docker-compose.prod.yml ps
+#   로그: docker compose -f docker-compose.prod.yml logs -f
+#   종료: docker compose -f docker-compose.prod.yml down      (데이터는 볼륨에 남는다)
+#
+# 세 서비스는 compose가 만든 내부 네트워크에서 서비스 이름(db, backend)으로 서로를 찾는다.
+# 밖으로 여는 포트는 프런트엔드 하나뿐이다. DB와 백엔드는 밖에서 접속할 수 없다.
+
+# 개발용 구성과 컨테이너·볼륨 이름이 겹치지 않도록 프로젝트 이름을 따로 준다.
+name: blog-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: blog
+      POSTGRES_USER: blog
+      # ${이름:?문구}: 값이 없으면 문구를 보여주고 시작하지 않는다.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?.env 파일에 DB_PASSWORD를 설정하세요}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blog -d blog"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    image: blog-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        # DB가 접속을 받을 준비가 된 뒤에 시작한다.
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/blog
+      DB_USERNAME: blog
+      DB_PASSWORD: ${DB_PASSWORD:?.env 파일에 DB_PASSWORD를 설정하세요}
+      JWT_SECRET: ${JWT_SECRET:?.env 파일에 JWT_SECRET을 설정하세요 (32자 이상)}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-12h}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      # 올린 이미지는 컨테이너 밖(볼륨)에 저장한다. 컨테이너를 새로 만들어도 남는다.
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    build: ./frontend
+    image: blog-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://backend:8080
+    ports:
+      - "${PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  db-data:
+  uploads:
