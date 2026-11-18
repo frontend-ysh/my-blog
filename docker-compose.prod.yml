@@ -68,7 +68,9 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/login"]
+      # localhost가 아니라 127.0.0.1로 적는다. 서버는 IPv4 주소(0.0.0.0)에서만 듣는데,
+      # 환경에 따라 컨테이너 안의 localhost가 IPv6 주소(::1)로 풀려서 서버에 닿지 못한다.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/login"]
       interval: 10s
       timeout: 5s
       retries: 6
